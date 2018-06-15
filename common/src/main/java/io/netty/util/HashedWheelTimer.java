@@ -16,7 +16,6 @@
 package io.netty.util;
 
 import io.netty.util.internal.PlatformDependent;
-import io.netty.util.internal.StringUtil;
 import io.netty.util.internal.logging.InternalLogger;
 import io.netty.util.internal.logging.InternalLoggerFactory;
 
@@ -98,8 +97,8 @@ public class HashedWheelTimer implements Timer {
     public static final int WORKER_STATE_INIT = 0;
     public static final int WORKER_STATE_STARTED = 1;
     public static final int WORKER_STATE_SHUTDOWN = 2;
-    @SuppressWarnings({ "unused", "FieldMayBeFinal", "RedundantFieldInitialization" })
-    private volatile int workerState = WORKER_STATE_INIT; // 0 - init, 1 - started, 2 - shut down
+    @SuppressWarnings({ "unused", "FieldMayBeFinal" })
+    private volatile int workerState; // 0 - init, 1 - started, 2 - shut down
 
     private final long tickDuration;
     private final HashedWheelBucket[] wheel;
@@ -405,14 +404,14 @@ public class HashedWheelTimer implements Timer {
         if (unit == null) {
             throw new NullPointerException("unit");
         }
-        if (shouldLimitTimeouts()) {
-            long pendingTimeoutsCount = pendingTimeouts.incrementAndGet();
-            if (pendingTimeoutsCount > maxPendingTimeouts) {
-                pendingTimeouts.decrementAndGet();
-                throw new RejectedExecutionException("Number of pending timeouts ("
-                    + pendingTimeoutsCount + ") is greater than or equal to maximum allowed pending "
-                    + "timeouts (" + maxPendingTimeouts + ")");
-            }
+
+        long pendingTimeoutsCount = pendingTimeouts.incrementAndGet();
+
+        if (maxPendingTimeouts > 0 && pendingTimeoutsCount > maxPendingTimeouts) {
+            pendingTimeouts.decrementAndGet();
+            throw new RejectedExecutionException("Number of pending timeouts ("
+                + pendingTimeoutsCount + ") is greater than or equal to maximum allowed pending "
+                + "timeouts (" + maxPendingTimeouts + ")");
         }
 
         start();
@@ -420,20 +419,30 @@ public class HashedWheelTimer implements Timer {
         // Add the timeout to the timeout queue which will be processed on the next tick.
         // During processing all the queued HashedWheelTimeouts will be added to the correct HashedWheelBucket.
         long deadline = System.nanoTime() + unit.toNanos(delay) - startTime;
+
+        // Guard against overflow.
+        if (delay > 0 && deadline < 0) {
+            deadline = Long.MAX_VALUE;
+        }
         HashedWheelTimeout timeout = new HashedWheelTimeout(this, task, deadline);
         timeouts.add(timeout);
         return timeout;
     }
 
-    private boolean shouldLimitTimeouts() {
-        return maxPendingTimeouts > 0;
+    /**
+     * Returns the number of pending timeouts of this {@link Timer}.
+     */
+    public long pendingTimeouts() {
+        return pendingTimeouts.get();
     }
 
     private static void reportTooManyInstances() {
-        String resourceType = simpleClassName(HashedWheelTimer.class);
-        logger.error("You are creating too many " + resourceType + " instances. " +
-                resourceType + " is a shared resource that must be reused across the JVM," +
-                "so that only a few instances are created.");
+        if (logger.isErrorEnabled()) {
+            String resourceType = simpleClassName(HashedWheelTimer.class);
+            logger.error("You are creating too many " + resourceType + " instances. " +
+                    resourceType + " is a shared resource that must be reused across the JVM," +
+                    "so that only a few instances are created.");
+        }
     }
 
     private final class Worker implements Runnable {
@@ -629,7 +638,7 @@ public class HashedWheelTimer implements Timer {
             HashedWheelBucket bucket = this.bucket;
             if (bucket != null) {
                 bucket.remove(this);
-            } else if (timer.shouldLimitTimeouts()) {
+            } else {
                 timer.pendingTimeouts.decrementAndGet();
             }
         }
@@ -774,9 +783,7 @@ public class HashedWheelTimer implements Timer {
             timeout.prev = null;
             timeout.next = null;
             timeout.bucket = null;
-            if (timeout.timer.shouldLimitTimeouts()) {
-                timeout.timer.pendingTimeouts.decrementAndGet();
-            }
+            timeout.timer.pendingTimeouts.decrementAndGet();
             return next;
         }
 

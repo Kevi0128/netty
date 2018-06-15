@@ -17,14 +17,29 @@ package io.netty.handler.ssl;
 
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.junit.runners.Parameterized;
 
-import javax.net.ssl.SSLException;
+import javax.net.ssl.SSLEngine;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
 
 import static io.netty.handler.ssl.OpenSslTestUtils.checkShouldUseKeyManagerFactory;
 import static io.netty.internal.tcnative.SSL.SSL_CVERIFY_IGNORED;
 import static org.junit.Assume.assumeTrue;
 
+@RunWith(Parameterized.class)
 public class JdkOpenSslEngineInteroptTest extends SSLEngineTest {
+
+    @Parameterized.Parameters(name = "{index}: bufferType = {0}")
+    public static Collection<Object> data() {
+        List<Object> params = new ArrayList<Object>();
+        for (BufferType type: BufferType.values()) {
+            params.add(type);
+        }
+        return params;
+    }
 
     public JdkOpenSslEngineInteroptTest(BufferType type) {
         super(type);
@@ -90,5 +105,10 @@ public class JdkOpenSslEngineInteroptTest extends SSLEngineTest {
     protected boolean mySetupMutualAuthServerIsValidClientException(Throwable cause) {
         // TODO(scott): work around for a JDK issue. The exception should be SSLHandshakeException.
         return super.mySetupMutualAuthServerIsValidClientException(cause) || causedBySSLException(cause);
+    }
+
+    @Override
+    protected SSLEngine wrapEngine(SSLEngine engine) {
+        return Java8SslTestUtils.wrapSSLEngineForTesting(engine);
     }
 }

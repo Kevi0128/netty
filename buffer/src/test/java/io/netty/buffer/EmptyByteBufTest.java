@@ -29,6 +29,21 @@ public class EmptyByteBufTest {
     }
 
     @Test
+    public void testWriteEmptyByteBuf() {
+        EmptyByteBuf empty = new EmptyByteBuf(UnpooledByteBufAllocator.DEFAULT);
+        empty.writeBytes(Unpooled.EMPTY_BUFFER); // Ok
+        ByteBuf nonEmpty = UnpooledByteBufAllocator.DEFAULT.buffer().writeBoolean(false);
+        try {
+            empty.writeBytes(nonEmpty);
+            fail();
+        } catch (IndexOutOfBoundsException ignored) {
+            // Ignore.
+        } finally {
+            nonEmpty.release();
+        }
+    }
+
+    @Test
     public void testIsReadable() {
         EmptyByteBuf empty = new EmptyByteBuf(UnpooledByteBufAllocator.DEFAULT);
         assertFalse(empty.isReadable());
@@ -66,5 +81,16 @@ public class EmptyByteBufTest {
                 // Ignore.
             }
         }
+    }
+
+    @Test
+    public void consistentEqualsAndHashCodeWithAbstractBytebuf() {
+        ByteBuf empty = new EmptyByteBuf(UnpooledByteBufAllocator.DEFAULT);
+        ByteBuf emptyAbstract = new UnpooledHeapByteBuf(UnpooledByteBufAllocator.DEFAULT, 0, 0);
+        assertEquals(emptyAbstract, empty);
+        assertEquals(emptyAbstract.hashCode(), empty.hashCode());
+        assertEquals(EmptyByteBuf.EMPTY_BYTE_BUF_HASH_CODE, empty.hashCode());
+        assertTrue(emptyAbstract.release());
+        assertFalse(empty.release());
     }
 }
